@@ -529,8 +529,8 @@ def main():
     if not login.server_list:
         print("❌ 错误：未设置服务器URL列表！")
         print("\n请在 GitHub Secrets 中设置：")
-        print("WEIRDHOST_SERVER_URLS: https://hub.weirdhost.xyz/server/服务器ID1,https://hub.weirdhost.xyz/server/服务器ID2")
-        print("\n示例: https://hub.weirdhost.xyz/server/abc12345,https://hub.weirdhost.xyz/server/abc67890")
+        print("WEIRDHOST_SERVER_URLS: https://hub.weirdhost.xyz/server/服务器1,https://hub.weirdhost.xyz/server/服务器2")
+        print("\n示例: https://hub.weirdhost.xyz/server/user00001,https://hub.weirdhost.xyz/server/user00002")
         sys.exit(1)
     
     # 执行续期任务
@@ -555,3 +555,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
