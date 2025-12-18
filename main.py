@@ -3,12 +3,14 @@
 """
 Weirdhost 登录脚本 - GitHub Actions 版本
 修正版 - 只有点击按钮后出现错误消息才表示已续期
+输出改为通过 Telegram Bot 发送，不再写入 README.md
 """
 
 import os
 import sys
 import time
-from datetime import datetime
+import requests
+from datetime import datetime, timezone, timedelta
 from playwright.sync_api import sync_playwright, TimeoutError
 
 
@@ -31,7 +33,11 @@ class WeirdhostLogin:
         self.server_list = []
         if self.server_urls:
             self.server_list = [url.strip() for url in self.server_urls.split(',') if url.strip()]
-    
+
+        # Telegram 配置
+        self.telegram_token = os.getenv('TELEGRAM_BOT_TOKEN', '')
+        self.telegram_chat_id = os.getenv('TELEGRAM_CHAT_ID', '')
+
     def log(self, message, level="INFO"):
         """日志输出"""
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -440,14 +446,13 @@ class WeirdhostLogin:
             self.log(f"运行时出错: {e}", "ERROR")
             return ["error: runtime"] * len(self.server_list)
     
-    def write_readme_file(self, results):
-        """写入README文件"""
+    def send_telegram_message(self, results):
+        """将结果通过 Telegram Bot 发送"""
         try:
-            # 获取东八区时间
-            from datetime import datetime, timezone, timedelta
-            beijing_time = datetime.now(timezone(timedelta(hours=8)))
-            timestamp = beijing_time.strftime('%Y-%m-%d %H:%M:%S')
-            
+            if not self.telegram_token or not self.telegram_chat_id:
+                self.log("未配置 Telegram Bot（TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID），跳过发送", "WARNING")
+                return False
+
             # 状态消息映射
             status_messages = {
                 "success": "✅ 续期成功",
@@ -464,45 +469,53 @@ class WeirdhostLogin:
                 "error: timeout": "⏰ 操作超时",
                 "error: runtime": "💥 运行时错误"
             }
-            
-            # 创建README内容
-            readme_content = f"""# Weirdhost 自动续期脚本
 
-**最后运行时间**: `{timestamp}` (北京时间)
+            beijing_time = datetime.now(timezone(timedelta(hours=8)))
+            timestamp = beijing_time.strftime('%Y-%m-%d %H:%M:%S')
 
-## 运行结果
-
-"""
-            
-            # 添加每个服务器的结果
+            lines = [f"Weirdhost 自动续期脚本 - 最后运行时间: {timestamp}（北京时间）", ""]
+            lines.append("运行结果：")
             for result in results:
                 if ":" in result and not result.startswith("error:"):
-                    # 正确分割服务器ID和状态
                     parts = result.split(":", 1)
                     server_id = parts[0].strip()
                     status = parts[1].strip() if len(parts) > 1 else "unknown"
-                    # 检查状态是否包含服务器ID
                     if ":" in status:
-                        # 如果状态中还包含冒号，说明分割有问题，重新处理
                         status_parts = status.split(":", 1)
                         server_id = f"{server_id}:{status_parts[0]}"
                         status = status_parts[1].strip() if len(status_parts) > 1 else "unknown"
-                        
                     status_msg = status_messages.get(status, f"❓ 未知状态 ({status})")
-                    readme_content += f"- 服务器 `{server_id}`: {status_msg}\n"
+                    lines.append(f"- 服务器 `{server_id}`: {status_msg}")
                 else:
-                    # 处理错误状态
                     status_msg = status_messages.get(result, f"❓ 未知状态 ({result})")
-                    readme_content += f"- {status_msg}\n"
-            
-            # 写入README文件
-            with open('README.md', 'w', encoding='utf-8') as f:
-                f.write(readme_content)
-            
-            self.log("📝 README已更新")
-            
+                    lines.append(f"- {status_msg}")
+
+            message = "\n".join(lines)
+
+            # Telegram 文本长度限制（安全截断）
+            max_len = 3800
+            if len(message) > max_len:
+                self.log("消息长度超过限制，进行截断", "WARNING")
+                message = message[:max_len] + "\n\n...（输出被截断）"
+
+            payload = {
+                "chat_id": self.telegram_chat_id,
+                "text": message,
+                "parse_mode": "Markdown"
+            }
+
+            url = f"https://api.telegram.org/bot{self.telegram_token}/sendMessage"
+            resp = requests.post(url, data=payload, timeout=15)
+            if resp.status_code == 200:
+                self.log("✅ 已通过 Telegram 发送运行结果")
+                return True
+            else:
+                self.log(f"发送 Telegram 消息失败，状态码: {resp.status_code}, 响应: {resp.text}", "ERROR")
+                return False
+
         except Exception as e:
-            self.log(f"写入README文件失败: {e}", "ERROR")
+            self.log(f"发送 Telegram 消息时出错: {e}", "ERROR")
+            return False
 
 
 def main():
@@ -536,8 +549,8 @@ def main():
     # 执行续期任务
     results = login.run()
     
-    # 写入README文件
-    login.write_readme_file(results)
+    # 通过 Telegram 发送结果（如未配置则会跳过）
+    login.send_telegram_message(results)
     
     print("=" * 50)
     print("📊 运行结果汇总:")
@@ -555,4 +568,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
